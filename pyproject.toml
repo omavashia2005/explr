@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "explr"
+version = "0.1.0"
+description = "Trace any Python process and output a call graph diagram"
+requires-python = ">=3.9"
+dependencies = [
+    "diagrams",
+    "graphviz",
+]
+
+[project.scripts]
+explr = "explr.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["explr*"]
