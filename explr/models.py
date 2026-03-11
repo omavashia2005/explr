@@ -23,6 +23,7 @@ class CallEdge:
     caller: CallNode
     callee: CallNode
     count: int = 1
+    seq: int = 0   # sequence number of first occurrence
 
 
 @dataclass
@@ -31,7 +32,8 @@ class CallGraph:
     edges: Dict[Tuple, CallEdge] = field(default_factory=dict)
 
     def add_call(self, caller_module: str, caller_func: str,
-                 callee_module: str, callee_func: str, count: int = 1) -> None:
+                 callee_module: str, callee_func: str,
+                 count: int = 1, seq: int = 0) -> None:
         caller_key = (caller_module, caller_func)
         callee_key = (callee_module, callee_func)
         if caller_key not in self.nodes:
@@ -46,6 +48,7 @@ class CallGraph:
                 self.nodes[caller_key],
                 self.nodes[callee_key],
                 count,
+                seq,
             )
 
     @classmethod
@@ -58,5 +61,6 @@ class CallGraph:
                 entry["callee_module"],
                 entry["callee_func"],
                 entry.get("count", 1),
+                entry.get("seq", 0),
             )
         return graph

@@ -53,7 +53,8 @@ def _is_stdlib(filename):
     fn = _os.path.normcase(_os.path.abspath(filename))
     return any(fn.startswith(_os.path.normcase(p)) for p in _stdlib_paths if p)
 
-_edges = {{}}   # (cm, cf, em, ef) -> count
+_seq_ctr = [0]
+_edges = {{}}   # (cm, cf, em, ef) -> [count, seq]
 _stack = []    # [(module, func)]
 
 def _trace(frame, event, arg):
@@ -70,7 +71,10 @@ def _trace(frame, event, arg):
 
         caller = _stack[-1] if _stack else ("<root>", "<root>")
         key    = (caller[0], caller[1], module, func)
-        _edges[key] = _edges.get(key, 0) + 1
+        if key not in _edges:
+            _edges[key] = [0, _seq_ctr[0]]
+            _seq_ctr[0] += 1
+        _edges[key][0] += 1
         _stack.append((module, func))
         return _trace
 
@@ -85,8 +89,8 @@ def _save():
     data = [
         {{"caller_module": cm, "caller_func": cf,
           "callee_module": em, "callee_func": ef,
-          "count": cnt}}
-        for (cm, cf, em, ef), cnt in _edges.items()
+          "count": v[0], "seq": v[1]}}
+        for (cm, cf, em, ef), v in _edges.items()
     ]
     try:
         with open(_OUTPUT, "w") as _f:
