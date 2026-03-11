@@ -3,5 +3,6 @@ explr_env
 dist/
 build/
 *.egg-info
-**/__pycache__/
+**/__
+pycache__/
 *.pyc

@@ -4,6 +4,7 @@ MANIFEST.in
 README.md
 pyproject.toml
 requirements.txt
+.github/workflows/publish.yml
 explr/__init__.py
 explr/cli.py
 explr/models.py

@@ -4,7 +4,7 @@ Trace any Python process and generate a clean call graph diagram.
 
 Best suited for debugging small-to-medium synchronous Python programs (for now).
 
-![example diagram](explr_diagrams/t6_cross_module_diagram.png)
+[Example Diagram](https://github.com/omavashia2005/explr/blob/main/explr_diagrams/t6_cross_module_diagram.png)
 
 
 ## How it works
@@ -42,21 +42,8 @@ The diagram has a **horizontal spine** of entry points in execution order, with 
 ### Install explr
 
 ```bash
-pip install -e .
+pip install explr
 ```
-
-Or with uv:
-
-```bash
-uv pip install -e .
-```
-
-> **Note:** Use `--no-build-isolation` if your environment already has setuptools:
-> ```bash
-> pip install -e . --no-build-isolation
-> ```
-
----
 
 ## CLI usage
 
