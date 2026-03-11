@@ -1,5 +1,7 @@
 explr_env
-explr/__pycache__
 .claude
-__pycache__
-explr/__pycache__
+dist/
+build/
+*.egg-info/
+**/__pycache__/
+*.pyc
