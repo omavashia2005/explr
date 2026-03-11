@@ -6,7 +6,7 @@ Trace any Python process and generate a clean call graph diagram.
 explr myscript.py
 ```
 
-![example diagram](test_explr_diagrams/main_diagram.png)
+![example diagram](explr_diagrams/t6_cross_module_diagram.png)
 
 ---
 
@@ -27,7 +27,6 @@ The diagram has a **horizontal spine** of entry points in execution order, with 
 - **S / E** = start and end of execution
 - **Green nodes** = entry points (called from top-level code), in the order they ran
 - **Blue nodes** = sub-calls
-- **Edge numbers** = how many times that call was made
 
 ---
 
@@ -187,7 +186,7 @@ explr.trace(
 |---|---|
 | User-defined functions | stdlib functions |
 | Cross-module calls | Dunder methods (`__init__`, etc.) |
-| Recursive calls (self-loops with count) | Private functions/modules (leading `_`) |
+| Recursive calls (self-loops) | Private functions/modules (leading `_`) |
 | Class methods | Synthetic names (`<listcomp>`, `<lambda>`, etc.) |
 
 If a function has no user-defined sub-calls, it still appears on the spine as `S → fn → E`.

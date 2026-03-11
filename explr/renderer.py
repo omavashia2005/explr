@@ -242,8 +242,7 @@ def render(
 
     # ── Sub-call edges (flow downward from spine into subtrees) ───────────────
     for edge in cg.edges.values():
-        label = str(edge.count) if edge.count > 1 else ""
-        dot.edge(edge.caller.node_id(), edge.callee.node_id(), label=label)
+        dot.edge(edge.caller.node_id(), edge.callee.node_id())
 
     # ── Render to PNG ─────────────────────────────────────────────────────────
     out = Path(output_path)
