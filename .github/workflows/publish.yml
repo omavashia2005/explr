@@ -3,7 +3,7 @@ name: Publish to PyPI
 on:
   push:
     tags:
-      - "v*.*.*"   # triggers on v0.1.0, v1.2.3, etc.
+      - "v*.*.*"
 
 jobs:
   build:
@@ -11,7 +11,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0        # needed for setuptools-scm to read git history
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -21,7 +21,11 @@ jobs:
         run: pip install build
 
       - name: Build distribution
-        run: python -m build
+        run: |
+          rm -rf dist/
+          python -m build
+          echo "--- built files ---"
+          ls dist/
 
       - uses: actions/upload-artifact@v4
         with:
@@ -31,15 +35,18 @@ jobs:
   publish:
     needs: build
     runs-on: ubuntu-latest
-    environment: pypi                        # matches the environment you create in GitHub
+    environment: pypi
     permissions:
-      id-token: write                        # required for PyPI trusted publishing
+      id-token: write
 
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: dist
           path: dist/
+
+      - name: List files to publish
+        run: ls dist/
 
       - name: Publish to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
