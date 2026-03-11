@@ -2,6 +2,6 @@ explr_env
 .claude
 dist/
 build/
-*.egg-info/
+*.egg-info
 **/__pycache__/
 *.pyc
