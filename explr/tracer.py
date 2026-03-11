@@ -125,6 +125,83 @@ _sys.settrace(None)
 '''
 
 
+def trace_func(
+    func,
+    args: tuple = (),
+    kwargs: Optional[dict] = None,
+    *,
+    max_depth: Optional[int] = None,
+    no_stdlib: bool = False,
+) -> CallGraph:
+    """
+    Trace a single callable in-process and return a CallGraph.
+
+    Unlike run_trace, this does not spawn a subprocess — it installs
+    sys.settrace directly, calls func(*args, **kwargs), then restores
+    whatever trace was in place before.
+    """
+    import sysconfig as _sc
+
+    if kwargs is None:
+        kwargs = {}
+
+    stdlib_paths = tuple(filter(None, [
+        _sc.get_paths().get("stdlib", ""),
+        _sc.get_paths().get("platstdlib", ""),
+        os.path.dirname(os.__file__),
+    ]))
+
+    def _is_stdlib(filename: str) -> bool:
+        if not filename:
+            return True
+        fn = os.path.normcase(os.path.abspath(filename))
+        return any(fn.startswith(os.path.normcase(p)) for p in stdlib_paths if p)
+
+    edges: dict = {}   # (cm, cf, em, ef) -> [count, seq]
+    stack: list = []
+    seq_ctr = [0]
+
+    def _tracer(frame, event, _arg):
+        if event == "call":
+            module    = frame.f_globals.get("__name__", "")
+            func_name = frame.f_code.co_name
+            filename  = frame.f_code.co_filename or ""
+            depth     = len(stack)
+
+            if no_stdlib and _is_stdlib(filename):
+                return None
+            if max_depth is not None and depth >= max_depth:
+                return None
+
+            caller = stack[-1] if stack else ("<root>", "<root>")
+            key = (caller[0], caller[1], module, func_name)
+            if key not in edges:
+                edges[key] = [0, seq_ctr[0]]
+                seq_ctr[0] += 1
+            edges[key][0] += 1
+            stack.append((module, func_name))
+            return _tracer
+        elif event in ("return", "exception"):
+            if stack:
+                stack.pop()
+        return _tracer
+
+    old_trace = sys.gettrace()
+    sys.settrace(_tracer)
+    try:
+        func(*args, **kwargs)
+    finally:
+        sys.settrace(old_trace)
+
+    trace_data = [
+        {"caller_module": cm, "caller_func": cf,
+         "callee_module": em, "callee_func": ef,
+         "count": v[0], "seq": v[1]}
+        for (cm, cf, em, ef), v in edges.items()
+    ]
+    return CallGraph.from_trace_data(trace_data)
+
+
 def _detect_run_mode(target: str):
     """
     Returns (run_mode, resolved_target).
