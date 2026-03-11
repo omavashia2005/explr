@@ -2,13 +2,10 @@
 
 Trace any Python process and generate a clean call graph diagram.
 
-```
-explr myscript.py
-```
+Best suited for debugging small-to-medium synchronous Python programs (for now).
 
 ![example diagram](explr_diagrams/t6_cross_module_diagram.png)
 
----
 
 ## How it works
 
@@ -28,7 +25,6 @@ The diagram has a **horizontal spine** of entry points in execution order, with 
 - **Green nodes** = entry points (called from top-level code), in the order they ran
 - **Blue nodes** = sub-calls
 
----
 
 ## Installation
 
@@ -109,7 +105,7 @@ explr_diagrams/
   myscript_diagram.png
 ```
 
----
+
 
 ## Python API
 
