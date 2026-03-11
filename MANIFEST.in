@@ -1,0 +1,5 @@
+include LICENSE README.md pyproject.toml
+recursive-exclude explr_diagrams *
+recursive-exclude test_files *
+recursive-exclude __pycache__ *
+global-exclude *.pyc *.pyo
