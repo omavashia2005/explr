@@ -186,10 +186,28 @@ def trace_func(
                 stack.pop()
         return _tracer
 
+    import asyncio
+    import inspect
+
     old_trace = sys.gettrace()
     sys.settrace(_tracer)
     try:
-        func(*args, **kwargs)
+        result = func(*args, **kwargs)
+        if inspect.iscoroutine(result):
+            try:
+                asyncio.get_running_loop()
+                # Already inside a running loop (e.g. Jupyter) — can't use asyncio.run()
+                raise RuntimeError(
+                    "explr.trace() cannot be called from within a running event loop.\n"
+                    "Call it from a synchronous context, e.g. wrap with asyncio.run():\n"
+                    "  asyncio.run(explr.trace_async(func, args=...))"
+                )
+            except RuntimeError as exc:
+                if "no running event loop" in str(exc).lower() or \
+                   "no current event loop" in str(exc).lower():
+                    asyncio.run(result)
+                else:
+                    raise
     finally:
         sys.settrace(old_trace)
 

@@ -6,13 +6,28 @@ Trace any Python process and generate a clean call graph diagram.
 explr myscript.py
 ```
 
-![example diagram](explr_diagrams/main_diagram.png)
+![example diagram](test_explr_diagrams/main_diagram.png)
 
 ---
 
 ## How it works
 
-`explr` injects Python's `sys.settrace` into your script at runtime, records every function call, filters out noise (stdlib, dunders, private functions), and renders a top-to-bottom flow diagram showing how control moves through your code.
+`explr` injects Python's `sys.settrace` at runtime, records every function call, filters out noise (stdlib, dunders, private functions), and renders a flow diagram showing how control moves through your code.
+
+The diagram has a **horizontal spine** of entry points in execution order, with each node's sub-calls hanging below it:
+
+```
+(S) → run → (E)
+       ├── auth.register → db.save_user
+       │                 → db.get_user
+       ├── auth.login    → db.get_user
+       └── report        → db.all_users
+```
+
+- **S / E** = start and end of execution
+- **Green nodes** = entry points (called from top-level code), in the order they ran
+- **Blue nodes** = sub-calls
+- **Edge numbers** = how many times that call was made
 
 ---
 
@@ -48,13 +63,13 @@ uv pip install -e .
 
 ---
 
-## Usage
+## CLI usage
 
 ```
 explr [options] <target> [target-args ...]
 ```
 
-### Basic examples
+### Examples
 
 ```bash
 # Trace a .py file
@@ -77,7 +92,7 @@ explr python -m mypackage
 | Flag | Description |
 |---|---|
 | `--depth N` | Limit call depth (default: unlimited) |
-| `--no-stdlib` | Skip tracing stdlib calls (faster, same visual result) |
+| `--no-stdlib` | Skip tracing stdlib frames (faster, same visual result) |
 | `--output NAME` | Override output filename (no extension needed) |
 
 ```bash
@@ -95,9 +110,74 @@ explr_diagrams/
   myscript_diagram.png
 ```
 
-- Green nodes = entry points (called from top-level code)
-- Blue nodes = regular functions
-- Edge labels = number of times that call was made
+---
+
+## Python API
+
+Trace a specific function from within your own code using `explr.trace()`. Works with both **sync and async** functions.
+
+```python
+import explr
+
+# Sync function
+explr.trace(my_function, args=(1, 2))
+
+# Async function — explr handles the event loop automatically
+explr.trace(my_async_function, kwargs={"url": "...", "headers": {}})
+
+# With keyword args
+explr.trace(my_function, args=(x,), kwargs={"flag": True})
+
+# All options
+explr.trace(
+    my_function,
+    args=(x,),
+    output="my_graph",   # custom output filename (no extension)
+    depth=5,             # limit call depth
+    no_stdlib=True,      # skip stdlib frames (faster)
+)
+
+# Returns the path to the generated PNG (or None if nothing was captured)
+path = explr.trace(my_function, args=(x,))
+```
+
+Diagrams are written to `./explr_diagrams/<func_name>_diagram.png` (or your `output` name).
+
+`explr.trace()` runs entirely in-process using `sys.settrace` — no subprocess or temp files. Any existing trace hook is saved and restored around the call.
+
+### Async functions
+
+For async functions, `explr.trace()` automatically runs the coroutine via `asyncio.run()`. Mock out any network/IO calls so the function executes without side effects:
+
+```python
+import explr
+
+# Mock the network call
+async def fetch(url, headers):
+    return b"mock response"
+
+async def my_pipeline(url: str, headers: dict):
+    raw = await fetch(url=url, headers=headers)
+    result = process(raw)
+    return result
+
+explr.trace(
+    my_pipeline,
+    kwargs={"url": "https://example.com", "headers": {}},
+    output="my_pipeline",
+    no_stdlib=True,
+)
+```
+
+> **Jupyter / running event loop:** `asyncio.run()` cannot be called from inside an already-running loop. Install `nest_asyncio` to work around this:
+> ```bash
+> pip install nest_asyncio
+> ```
+> ```python
+> import nest_asyncio
+> nest_asyncio.apply()
+> explr.trace(my_async_function, kwargs={...})
+> ```
 
 ---
 
@@ -107,10 +187,10 @@ explr_diagrams/
 |---|---|
 | User-defined functions | stdlib functions |
 | Cross-module calls | Dunder methods (`__init__`, etc.) |
-| Recursive calls (self-loops) | Private functions/modules (leading `_`) |
+| Recursive calls (self-loops with count) | Private functions/modules (leading `_`) |
 | Class methods | Synthetic names (`<listcomp>`, `<lambda>`, etc.) |
 
-If no user-defined function calls are found (e.g. a script with only top-level expressions), no diagram is created.
+If a function has no user-defined sub-calls, it still appears on the spine as `S → fn → E`.
 
 ---
 
@@ -119,12 +199,12 @@ If no user-defined function calls are found (e.g. a script with only top-level e
 The `test_files/` directory contains examples covering common patterns:
 
 ```bash
-explr test_files/simple.py          # linear call chain
-explr test_files/recursive.py       # recursive functions
-explr test_files/classes.py         # class methods
-explr test_files/branching.py       # conditional branches
+explr test_files/simple.py             # linear call chain
+explr test_files/recursive.py          # recursive functions
+explr test_files/classes.py            # class methods
+explr test_files/branching.py          # conditional branches
 explr test_files/multi_module/main.py  # calls across multiple files
-explr test_files/no_calls.py        # no diagram (expected)
+explr test_files/no_calls.py           # no sub-calls (spine only)
 ```
 
 ---
@@ -133,8 +213,9 @@ explr test_files/no_calls.py        # no diagram (expected)
 
 ```
 explr/
+  __init__.py   # explr.trace() Python API
   cli.py        # entry point, argument parsing, process detection
-  tracer.py     # sys.settrace bootstrap and subprocess runner
+  tracer.py     # sys.settrace bootstrap (CLI) and in-process tracer (API)
   renderer.py   # graphviz diagram rendering
   models.py     # CallNode / CallEdge / CallGraph dataclasses
 test_files/     # example scripts for testing
