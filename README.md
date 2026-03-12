@@ -4,6 +4,8 @@ Trace any Python process and generate a clean call graph diagram.
 
 Best suited for debugging small-to-medium synchronous Python programs (for now).
 
+> **Recommended defaults:** use `--mermaid --local` for the cleanest results — Mermaid renders directly in VS Code and GitHub, and `--local` filters out everything except your own code.
+
 ```mermaid
 ---
 title: test_files/branching.py
@@ -80,23 +82,23 @@ explr [options] <target> [target-args ...]
 ### Examples
 
 ```bash
-# Trace a .py file
-explr myscript.py
+# Recommended: clean output, no Graphviz needed
+explr --mermaid --local myscript.py
 
 # Trace with the python prefix (same result)
 explr python myscript.py
 explr python3 myscript.py
 
 # Pass arguments through to your script
-explr myscript.py --config dev
+explr --mermaid --local myscript.py --config dev
 
 # Trace a module-style tool (e.g. pytest, flask)
-explr pytest tests/
-explr python -m mypackage
+explr --mermaid --local pytest tests/
+explr --mermaid --local python -m mypackage
 
 # Trace any shell command that resolves to Python
 # (PATH scripts, shell aliases, shell functions)
-explr my_tool --some-arg
+explr --mermaid --local my_tool --some-arg
 ```
 
 ### Resolving shell commands
@@ -121,16 +123,18 @@ explr mtgs_viewer
 
 | Flag | Description |
 |---|---|
+| `--mermaid` / `--mmd` | ⭐ Output a Mermaid flowchart (`.mmd`) instead of a PNG |
+| `--local` | ⭐ Only show your own code — excludes stdlib and third-party packages |
 | `--depth N` | Limit call depth (default: unlimited) |
-| `--no-stdlib` | Skip tracing stdlib frames (faster, same visual result) |
+| `--no-stdlib` | Skip tracing stdlib frames (faster; implied by `--local`) |
 | `--output NAME` | Override output filename (no extension needed) |
-| `--mermaid` / `--mmd` | Output a Mermaid flowchart (`.mmd`) instead of a PNG |
 
 ```bash
+# Recommended: cleanest output, no Graphviz needed, works in VS Code + GitHub
+explr --mermaid --local myscript.py
+
 explr --depth 5 myscript.py
-explr --no-stdlib myscript.py
 explr --output my_graph myscript.py
-explr --mermaid myscript.py
 ```
 
 ### Output formats
@@ -240,12 +244,12 @@ If a function has no user-defined sub-calls, it still appears on the spine as `S
 The `test_files/` directory contains examples covering common patterns:
 
 ```bash
-explr test_files/simple.py             # linear call chain
-explr test_files/recursive.py          # recursive functions
-explr test_files/classes.py            # class methods
-explr test_files/branching.py          # conditional branches
-explr test_files/multi_module/main.py  # calls across multiple files
-explr test_files/no_calls.py           # no sub-calls (spine only)
+explr --mermaid --local test_files/simple.py             # linear call chain
+explr --mermaid --local test_files/recursive.py          # recursive functions
+explr --mermaid --local test_files/classes.py            # class methods
+explr --mermaid --local test_files/branching.py          # conditional branches
+explr --mermaid --local test_files/multi_module/main.py  # calls across multiple files
+explr --mermaid --local test_files/no_calls.py           # no sub-calls (spine only)
 ```
 
 ---

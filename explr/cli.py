@@ -139,6 +139,12 @@ def _build_parser() -> argparse.ArgumentParser:
         nargs=argparse.REMAINDER,
         help="Python target to trace, plus any args for it",
     )
+    p.add_argument(
+        "--local", 
+        action="store_true",
+        default=False,
+        help="Only include calls from the target's own code (exclude site-packages and stdlib)"
+    )
     return p
 
 
@@ -194,6 +200,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         target_args,
         max_depth=args.depth,
         no_stdlib=args.no_stdlib,
+        local=args.local,
         _resolved=resolved,
     )
 

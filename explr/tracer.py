@@ -247,6 +247,7 @@ import sysconfig as _sc
 # --- injected config ---
 _MAX_DEPTH  = {max_depth}
 _NO_STDLIB  = {no_stdlib}
+_LOCAL      = {local}
 _OUTPUT     = {output!r}
 _RUN_MODE   = {run_mode!r}   # "path" | "module"
 _TARGET     = {target!r}
@@ -266,6 +267,9 @@ def _is_stdlib(filename):
     fn = _os.path.normcase(_os.path.abspath(filename))
     return any(fn.startswith(_os.path.normcase(p)) for p in _stdlib_paths if p)
 
+def _is_third_party(filename):
+    return "site-packages" in filename or "dist-packages" in filename
+
 _seq_ctr = [0]
 _edges = {{}}   # (cm, cf, em, ef) -> [count, seq]
 _stack = []    # [(module, func)]
@@ -277,7 +281,9 @@ def _trace(frame, event, arg):
         filename = frame.f_code.co_filename or ""
         depth    = len(_stack)
 
-        if _NO_STDLIB and _is_stdlib(filename):
+        if (_NO_STDLIB or _LOCAL) and _is_stdlib(filename):
+            return None
+        if _LOCAL and _is_third_party(filename):
             return None
         if _MAX_DEPTH is not None and depth >= _MAX_DEPTH:
             return None
@@ -345,6 +351,7 @@ def trace_func(
     *,
     max_depth: Optional[int] = None,
     no_stdlib: bool = False,
+    local: bool = False,
 ) -> CallGraph:
     """
     Trace a single callable in-process and return a CallGraph.
@@ -370,6 +377,9 @@ def trace_func(
         fn = os.path.normcase(os.path.abspath(filename))
         return any(fn.startswith(os.path.normcase(p)) for p in stdlib_paths if p)
 
+    def _is_third_party(filename: str) -> bool:
+        return "site-packages" in filename or "dist-packages" in filename
+
     edges: dict = {}   # (cm, cf, em, ef) -> [count, seq]
     stack: list = []
     seq_ctr = [0]
@@ -381,7 +391,9 @@ def trace_func(
             filename  = frame.f_code.co_filename or ""
             depth     = len(stack)
 
-            if no_stdlib and _is_stdlib(filename):
+            if (no_stdlib or local) and _is_stdlib(filename):
+                return None
+            if local and _is_third_party(filename):
                 return None
             if max_depth is not None and depth >= max_depth:
                 return None
@@ -456,6 +468,7 @@ def run_trace(
     *,
     max_depth: Optional[int] = None,
     no_stdlib: bool = False,
+    local: bool = False,
     _resolved: Optional[Tuple[str, List[str]]] = None,
 ) -> CallGraph:
     """
@@ -483,6 +496,7 @@ def run_trace(
         bootstrap_src = _BOOTSTRAP_TMPL.format(
             max_depth=repr(max_depth),
             no_stdlib=repr(no_stdlib),
+            local=repr(local),
             output=trace_path,
             run_mode=run_mode,
             target=resolved_target,
