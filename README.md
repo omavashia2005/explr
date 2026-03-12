@@ -27,7 +27,7 @@ flowchart LR
 
 [Example PNG Diagram](https://github.com/omavashia2005/explr/blob/main/explr_diagrams/t6_cross_module_diagram.png)
 
-[Example Mermaid Diagram](https://github.com/omavashia2005/explr/blob/main/explr_diagrams/mermaid/main_diagram.png)
+[Example Mermaid Diagram](https://github.com/omavashia2005/explr/blob/main/explr_diagrams/mermaid/main_diagram.mmd)
 
 
 ## How it works
