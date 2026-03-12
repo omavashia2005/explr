@@ -3,7 +3,7 @@ import sys
 from typing import Callable, Optional
 
 from .tracer import trace_func
-from .renderer import render
+from .renderer import render, render_mermaid
 
 
 def trace(
@@ -53,7 +53,14 @@ def trace(
     name = output or func.__name__
     out_path = os.path.join(out_dir, f"{name}_diagram.png")
 
-    _gv_extra = "/opt/homebrew/bin" if sys.platform == "darwin" else None
-    render(call_graph, out_path, target_name=func.__name__, _graphviz_path=_gv_extra)
+    if args.mermaid:
+        render_mermaid(call_graph, out_path, target_name=func.__name__)
+    else:
+        try:
+            _gv_extra = "/opt/homebrew/bin" if sys.platform == "darwin" else None
+            render(call_graph, out_path, target_name=func.__name__, _graphviz_path=_gv_extra)
+        except Exception as e:
+            print.debug(f"Graphviz rendering failed: {e}. Falling back to Mermaid output.")
+            render_mermaid(call_graph, out_path, target_name=func.__name__)
 
     return out_path

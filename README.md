@@ -4,7 +4,30 @@ Trace any Python process and generate a clean call graph diagram.
 
 Best suited for debugging small-to-medium synchronous Python programs (for now).
 
-[Example Diagram](https://github.com/omavashia2005/explr/blob/main/explr_diagrams/t6_cross_module_diagram.png)
+```mermaid
+---
+title: test_files/branching.py
+---
+flowchart LR
+	__start__(("S"))
+	__end__(("E"))
+	__main____run["run"]
+	__main____process["process"]
+	__main____validate["validate"]
+	__main____handle_even["handle_even"]
+	__main____handle_odd["handle_odd"]
+	__start__ --> __main____run
+	__main____run --> __end__
+	__main____run --> __main____process
+	__main____process --> __main____validate
+	__main____process --> __main____handle_even
+	__main____process --> __main____handle_odd
+```
+
+
+[Example PNG Diagram](https://github.com/omavashia2005/explr/blob/main/explr_diagrams/t6_cross_module_diagram.png)
+
+[Example Mermaid Diagram](https://github.com/omavashia2005/explr/blob/main/explr_diagrams/mermaid/main_diagram.png)
 
 
 ## How it works
@@ -30,7 +53,7 @@ The diagram has a **horizontal spine** of entry points in execution order, with 
 
 ### Prerequisites
 
-`explr` requires **Graphviz** to render diagrams. Install it for your OS:
+The default PNG output requires **Graphviz**. Install it for your OS:
 
 | OS | Command |
 |---|---|
@@ -39,11 +62,14 @@ The diagram has a **horizontal spine** of entry points in execution order, with 
 | Fedora / RHEL | `sudo dnf install graphviz` |
 | Windows | [Download installer](https://graphviz.org/download/) — make sure `dot` is added to PATH |
 
+> If you only want Mermaid (`.mmd`) output, Graphviz is not required.
+
 ### Install explr
 
 ```bash
 pip install explr
 ```
+
 
 ## CLI usage
 
@@ -67,6 +93,28 @@ explr myscript.py --config dev
 # Trace a module-style tool (e.g. pytest, flask)
 explr pytest tests/
 explr python -m mypackage
+
+# Trace any shell command that resolves to Python
+# (PATH scripts, shell aliases, shell functions)
+explr my_tool --some-arg
+```
+
+### Resolving shell commands
+
+`explr` automatically resolves commands that aren't directly a Python file or interpreter.
+It walks the following chain until it finds a Python target:
+
+1. **PATH scripts** — executable files with a `#!/usr/bin/env python3` shebang
+2. **Shell aliases** — e.g. `alias my_tool='python3 /path/to/tool.py'`
+3. **Shell functions** — defined in your `.bashrc` / `.zshrc`
+4. **Wrapper scripts** — shell scripts that `exec python3 ...` internally
+
+```bash
+# If 'mtgs_viewer' is a shell alias for 'python3 viewer.py --theme dark':
+explr mtgs_viewer
+
+# explr prints what it resolved to:
+# [explr] resolved 'mtgs_viewer' → viewer.py (extra args: ['--theme', 'dark'])
 ```
 
 ### Options
@@ -76,22 +124,33 @@ explr python -m mypackage
 | `--depth N` | Limit call depth (default: unlimited) |
 | `--no-stdlib` | Skip tracing stdlib frames (faster, same visual result) |
 | `--output NAME` | Override output filename (no extension needed) |
+| `--mermaid` / `--mmd` | Output a Mermaid flowchart (`.mmd`) instead of a PNG |
 
 ```bash
 explr --depth 5 myscript.py
 explr --no-stdlib myscript.py
 explr --output my_graph myscript.py
+explr --mermaid myscript.py
 ```
 
-### Output
+### Output formats
 
-Diagrams are saved to `./explr_diagrams/` in the current working directory:
-
+**Default — PNG** (requires Graphviz):
 ```
 explr_diagrams/
   myscript_diagram.png
 ```
 
+**Mermaid** (`--mermaid`):
+```
+explr_diagrams/
+  myscript_diagram.mmd
+```
+
+The `.mmd` file contains a standard [Mermaid](https://mermaid.js.org) flowchart that renders in:
+- VS Code (Markdown preview / Mermaid extension)
+- GitHub Markdown (fenced ` ```mermaid ` blocks)
+- [mermaid.live](https://mermaid.live) — paste and view instantly
 
 
 ## Python API
@@ -196,9 +255,9 @@ explr test_files/no_calls.py           # no sub-calls (spine only)
 ```
 explr/
   __init__.py   # explr.trace() Python API
-  cli.py        # entry point, argument parsing, process detection
-  tracer.py     # sys.settrace bootstrap (CLI) and in-process tracer (API)
-  renderer.py   # graphviz diagram rendering
+  cli.py        # entry point, argument parsing, command resolution
+  tracer.py     # sys.settrace bootstrap (CLI), in-process tracer (API), shell resolution
+  renderer.py   # graphviz PNG and Mermaid diagram rendering
   models.py     # CallNode / CallEdge / CallGraph dataclasses
 test_files/     # example scripts for testing
 pyproject.toml

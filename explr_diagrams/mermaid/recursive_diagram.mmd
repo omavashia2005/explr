@@ -1,0 +1,15 @@
+---
+title: test_files/recursive.py
+---
+flowchart LR
+	__start__(("S"))
+	__end__(("E"))
+	__main____main["main"]
+	__main____factorial["factorial"]
+	__main____fibonacci["fibonacci"]
+	__start__ --> __main____main
+	__main____main --> __end__
+	__main____main --> __main____factorial
+	__main____factorial --> __main____factorial
+	__main____main --> __main____fibonacci
+	__main____fibonacci --> __main____fibonacci

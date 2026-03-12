@@ -1,0 +1,17 @@
+---
+title: test_files/classes.py
+---
+flowchart LR
+	__start__(("S"))
+	__end__(("E"))
+	__main____cart["Cart"]
+	__main____run["run"]
+	__main____add_item["add_item"]
+	__main____apply_discount["apply_discount"]
+	__main____total["total"]
+	__start__ --> __main____cart
+	__main____cart --> __main____run
+	__main____run --> __end__
+	__main____run --> __main____add_item
+	__main____run --> __main____apply_discount
+	__main____apply_discount --> __main____total

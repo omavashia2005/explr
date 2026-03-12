@@ -1,0 +1,22 @@
+---
+title: main.py
+---
+flowchart LR
+	__start__(("S"))
+	__end__(("E"))
+	__main____run["run"]
+	auth__register["auth.register"]
+	db__get_user["db.get_user"]
+	db__save_user["db.save_user"]
+	auth__login["auth.login"]
+	__main____report["report"]
+	db__all_users["db.all_users"]
+	__start__ --> __main____run
+	__main____run --> __end__
+	__main____run --> auth__register
+	auth__register --> db__get_user
+	auth__register --> db__save_user
+	__main____run --> auth__login
+	auth__login --> db__get_user
+	__main____run --> __main____report
+	__main____report --> db__all_users

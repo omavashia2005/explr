@@ -1,0 +1,17 @@
+---
+title: test_files/branching.py
+---
+flowchart LR
+	__start__(("S"))
+	__end__(("E"))
+	__main____run["run"]
+	__main____process["process"]
+	__main____validate["validate"]
+	__main____handle_even["handle_even"]
+	__main____handle_odd["handle_odd"]
+	__start__ --> __main____run
+	__main____run --> __end__
+	__main____run --> __main____process
+	__main____process --> __main____validate
+	__main____process --> __main____handle_even
+	__main____process --> __main____handle_odd

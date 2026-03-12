@@ -12,7 +12,9 @@ import sysconfig
 import sys
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
-
+import mermaid as md
+from mermaid import Mermaid, Direction
+from mermaid.flowchart import FlowChart, Node, Link
 from .models import CallGraph, CallNode
 
 try:
@@ -268,3 +270,84 @@ def render(
             os.environ["PATH"] = old_path
 
     print(f"[explr] diagram written to {out}")
+
+def render_mermaid(call_graph: CallGraph, output_path: str, target_name: str) -> None:
+
+    original = call_graph
+    cg = _filter_for_display(call_graph)
+
+    if not cg.nodes:
+        print(
+            "[explr] no user-defined function calls found after filtering – "
+            "no diagram created"
+        )
+        return
+
+    display_keys: Set[Tuple[str, str]] = set(cg.nodes.keys())
+    has_display_caller: Set[Tuple[str, str]] = {
+        (e.callee.module, e.callee.func) for e in cg.edges.values()
+    }
+
+    spine_keys = _ordered_spine(original, display_keys, has_display_caller)
+
+    # Fallback: no clear entry points (e.g. all nodes in a cycle)
+    if not spine_keys:
+        spine_keys = sorted(
+            display_keys,
+            key=lambda k: min(
+                (e.seq for e in cg.edges.values()
+                if (e.callee.module, e.callee.func) == k),
+                default=0,
+            ),
+        )
+
+    # ── build mermaid nodes ───────────────────────────────────────────────────
+    mermaid_node_map: dict = {}
+
+    start_node = Node("__START__", "S", shape="circle")
+    end_node = Node("__END__", "E", shape="circle")
+    mermaid_node_map["__START__"] = start_node
+    mermaid_node_map["__END__"] = end_node
+
+    spine_set = set(spine_keys)
+    for key in spine_keys:
+        node = cg.nodes[key]
+        nid = node.node_id()
+        mermaid_node_map[nid] = Node(nid, _node_label(node))
+
+    for key, node in cg.nodes.items():
+        if key not in spine_set:
+            nid = node.node_id()
+            if nid not in mermaid_node_map:
+                mermaid_node_map[nid] = Node(nid, _node_label(node))
+
+    # ── build links ───────────────────────────────────────────────────────────
+    links: List[Link] = []
+
+    # Spine: S → spine1 → spine2 → ... → E
+    prev = start_node
+    for k in spine_keys:
+        curr = mermaid_node_map[cg.nodes[k].node_id()]
+        links.append(Link(prev, curr))
+        prev = curr
+    links.append(Link(prev, end_node))
+
+    # Sub-call edges
+    for edge in cg.edges.values():
+        caller_nid = edge.caller.node_id()
+        callee_nid = edge.callee.node_id()
+        if caller_nid in mermaid_node_map and callee_nid in mermaid_node_map:
+            links.append(Link(mermaid_node_map[caller_nid], mermaid_node_map[callee_nid]))
+
+    # ── create chart and save ─────────────────────────────────────────────────
+    chart = FlowChart(
+        target_name,
+        nodes=list(mermaid_node_map.values()),
+        links=links,
+        orientation=Direction.LEFT_TO_RIGHT,
+    )
+
+    out = Path(output_path).with_suffix(".mmd")
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(chart.script)
+    print(f"[explr] mermaid diagram written to {out}")

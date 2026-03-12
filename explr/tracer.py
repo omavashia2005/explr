@@ -8,13 +8,226 @@ The main process reads that file and builds a CallGraph.
 
 import json
 import os
+import re
+import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from .models import CallGraph
+
+
+# ---------------------------------------------------------------------------
+# Shell command resolution
+# ---------------------------------------------------------------------------
+
+def _is_python_interp(name: str) -> bool:
+    """Return True if name looks like a python interpreter binary."""
+    n = Path(name).name.lower()
+    return n in ("python", "python3") or bool(re.match(r"^python3?\.\d+$", n))
+
+
+def _python_args_from_parts(parts: List[str]) -> Optional[Tuple[str, List[str]]]:
+    """
+    Given a tokenised command like ['python3', '-m', 'myapp', '--flag'],
+    extract (python_target, extra_args) where target is the script path or
+    module name, and extra_args are the args that follow.
+
+    Returns None if parts don't start with a python interpreter.
+    """
+    if not parts:
+        return None
+
+    idx = 0
+    # Skip the interpreter itself
+    if _is_python_interp(parts[idx]):
+        idx += 1
+    else:
+        return None
+
+    # Consume interpreter flags: -u, -O, -W default, -c '...', -m mod, script.py
+    extra: List[str] = []
+    while idx < len(parts):
+        tok = parts[idx]
+        if tok == "-m" and idx + 1 < len(parts):
+            return parts[idx + 1], parts[idx + 2:]   # module mode
+        if tok.startswith("-"):
+            # Single-char flags with an attached or separate value
+            if tok in ("-W", "-X", "-c"):
+                idx += 2
+            else:
+                idx += 1
+            continue
+        # First non-flag token is the script path
+        return tok, parts[idx + 1:]
+
+    return None
+
+
+def _inspect_file_for_python(path: str) -> Optional[Tuple[str, List[str]]]:
+    """
+    Read up to the first 40 lines of *path* looking for evidence that it
+    invokes Python.
+
+    Returns (python_target, extra_args) where:
+      - python_target is the script path (for shebang scripts) or module name
+      - extra_args are any args baked into the shebang / exec line
+
+    Returns None if no Python invocation is found.
+    """
+    try:
+        with open(path, "rb") as f:
+            raw = f.read(4096)
+    except OSError:
+        return None
+
+    try:
+        text = raw.decode("utf-8", errors="replace")
+    except Exception:
+        return None
+
+    lines = text.splitlines()
+    if not lines:
+        return None
+
+    # ── shebang check ──────────────────────────────────────────────────────
+    first = lines[0]
+    if first.startswith("#!"):
+        shebang_parts = first[2:].split()
+        if shebang_parts:
+            interp = shebang_parts[0]
+            interp_name = Path(interp).name.lower()
+
+            # #!/usr/bin/python3  or  #!/usr/bin/env python3
+            if _is_python_interp(interp_name):
+                return path, []
+            if interp_name == "env" and len(shebang_parts) > 1 and _is_python_interp(shebang_parts[1]):
+                return path, []
+
+        # It's a shell script — scan the body for `exec python ...` patterns
+        if any(sh in first for sh in ("bash", "sh", "zsh", "dash")):
+            for line in lines[1:40]:
+                stripped = line.strip()
+                if stripped.startswith("#") or not stripped:
+                    continue
+                # match: exec python3 ..., python3 script.py "$@", etc.
+                m = re.match(r"(?:exec\s+)?(python3?(?:\.\d+)?)\s+(.*)", stripped)
+                if m:
+                    rest = shlex.split(m.group(2)) if m.group(2) else []
+                    result = _python_args_from_parts([m.group(1)] + rest)
+                    if result:
+                        return result
+
+    return None
+
+
+def _shell_resolve_command(cmd: str) -> Optional[Tuple[str, List[str]]]:
+    """
+    Ask the user's interactive shell to expand *cmd* (handles aliases and
+    shell functions).  Returns (python_target, extra_args) or None.
+
+    Spawns  shell -i -c "type -a <cmd>"  and parses the output.
+    Falls back to bash if $SHELL is not set.
+    """
+    shell = os.environ.get("SHELL", "/bin/bash")
+
+    try:
+        result = subprocess.run(
+            [shell, "-i", "-c", f"type -a {shlex.quote(cmd)} 2>/dev/null"],
+            capture_output=True, text=True, timeout=5,
+        )
+        type_out = result.stdout.strip()
+    except Exception:
+        return None
+
+    if not type_out:
+        return None
+
+    # ── alias ──────────────────────────────────────────────────────────────
+    # bash: "cmd is aliased to `python3 /path/script.py'"
+    # zsh:  "cmd is an alias for python3 /path/script.py"
+    alias_m = re.search(
+        r"aliased to [`'\"]?(.*?)[`'\"]?\s*$|alias for (.+)$",
+        type_out, re.MULTILINE
+    )
+    if alias_m:
+        raw = (alias_m.group(1) or alias_m.group(2) or "").strip().strip("'\"")
+        try:
+            parts = shlex.split(raw)
+        except ValueError:
+            parts = raw.split()
+        result2 = _python_args_from_parts(parts)
+        if result2:
+            return result2
+
+    # ── shell function ─────────────────────────────────────────────────────
+    if "function" in type_out.lower() or "shell function" in type_out.lower():
+        try:
+            # get function body: works in bash; zsh uses 'functions cmd'
+            fb_result = subprocess.run(
+                [shell, "-i", "-c",
+                 f"declare -f {shlex.quote(cmd)} 2>/dev/null || "
+                 f"functions {shlex.quote(cmd)} 2>/dev/null"],
+                capture_output=True, text=True, timeout=5,
+            )
+            body = fb_result.stdout
+        except Exception:
+            body = ""
+
+        for line in body.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#") or not stripped:
+                continue
+            m = re.match(r"(?:exec\s+)?(python3?(?:\.\d+)?(?:\s+\S+)?)\s*(.*)", stripped)
+            if m:
+                try:
+                    parts = shlex.split(m.group(1) + " " + m.group(2))
+                except ValueError:
+                    parts = (m.group(1) + " " + m.group(2)).split()
+                r = _python_args_from_parts(parts)
+                if r:
+                    return r
+
+    # ── plain file on PATH ─────────────────────────────────────────────────
+    # "cmd is /usr/local/bin/cmd"
+    file_m = re.search(r" is (/\S+)", type_out)
+    if file_m:
+        file_path = file_m.group(1)
+        r = _inspect_file_for_python(file_path)
+        if r:
+            return r
+
+    return None
+
+
+def resolve_to_python(cmd: str) -> Optional[Tuple[str, List[str]]]:
+    """
+    Public entry point: resolve *cmd* to a (python_target, extra_args) tuple.
+
+    Resolution order:
+      1. Already a .py file → return as-is
+      2. Executable on PATH → inspect shebang / body
+      3. Interactive-shell expansion (aliases, shell functions)
+
+    Returns None if *cmd* cannot be resolved to a Python program.
+    The caller is responsible for prepending extra_args to the target_args list.
+    """
+    # 1. bare .py file
+    if Path(cmd).suffix == ".py":
+        return cmd, []
+
+    # 2. look on PATH first (avoids spawning a shell for the common case)
+    exe = shutil.which(cmd)
+    if exe:
+        r = _inspect_file_for_python(exe)
+        if r:
+            return r
+
+    # 3. shell expansion (aliases / functions / anything the shell knows)
+    return _shell_resolve_command(cmd)
 
 
 # ---------------------------------------------------------------------------
@@ -220,15 +433,20 @@ def trace_func(
     return CallGraph.from_trace_data(trace_data)
 
 
-def _detect_run_mode(target: str):
+def _detect_run_mode(target: str) -> Tuple[str, str]:
     """
     Returns (run_mode, resolved_target).
-    run_mode: "path" for a .py file, "module" for a module name.
+    run_mode: "path" for a script file, "module" for a dotted module name.
+
+    Handles:
+    - Explicit .py file
+    - Any executable file on disk (resolved via resolve_to_python → already a file path)
+    - Dotted module names (e.g. "mypackage.cli")
     """
     p = Path(target)
-    if p.suffix == ".py" or p.is_file():
+    if p.suffix == ".py" or (p.is_file() and not p.suffix):
         return "path", str(p.resolve())
-    # treat as module (pytest, flask, etc.)
+    # treat as module (pytest, flask, mypackage.cli, etc.)
     return "module", target
 
 
@@ -238,12 +456,22 @@ def run_trace(
     *,
     max_depth: Optional[int] = None,
     no_stdlib: bool = False,
+    _resolved: Optional[Tuple[str, List[str]]] = None,
 ) -> CallGraph:
     """
     Inject a trace into *target*, execute it with *target_args*,
     collect the call graph, and return a :class:`CallGraph`.
+
+    If *_resolved* is provided as (python_target, extra_args) — e.g. from
+    resolve_to_python() — those extra_args are prepended to target_args and
+    python_target is used instead of target.
     """
-    run_mode, resolved_target = _detect_run_mode(target)
+    if _resolved is not None:
+        python_target, extra_args = _resolved
+        target_args = extra_args + target_args
+        run_mode, resolved_target = _detect_run_mode(python_target)
+    else:
+        run_mode, resolved_target = _detect_run_mode(target)
 
     # temp file for trace output
     fd, trace_path = tempfile.mkstemp(suffix=".json", prefix="explr_trace_")

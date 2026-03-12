@@ -9,7 +9,7 @@ description = "Trace any Python process and generate a clean call graph diagram"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.9"
-dependencies = ["graphviz>=0.20"]
+dependencies = ["graphviz>=0.20", "mermaid-py>=0.8.4"]
 keywords = ["tracing", "call-graph", "debugging", "visualization", "profiling"]
 classifiers = [
     "Development Status :: 3 - Alpha",

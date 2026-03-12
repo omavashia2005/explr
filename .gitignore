@@ -6,3 +6,5 @@ build/
 **/__
 pycache__/
 *.pyc
+.env
+release_script.sh

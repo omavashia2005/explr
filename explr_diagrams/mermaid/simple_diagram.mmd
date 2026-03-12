@@ -1,0 +1,13 @@
+---
+title: test_files/simple.py
+---
+flowchart LR
+	__start__(("S"))
+	__end__(("E"))
+	__main____main["main"]
+	__main____greet["greet"]
+	__main____format_name["format_name"]
+	__start__ --> __main____main
+	__main____main --> __end__
+	__main____main --> __main____greet
+	__main____greet --> __main____format_name

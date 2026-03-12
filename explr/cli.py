@@ -128,6 +128,13 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Override output filename (without extension)",
     )
     p.add_argument(
+        "--mermaid", 
+        "--mmd", 
+        default=False, 
+        action="store_true",
+        help="Output Mermaid syntax instead of a PNG diagram"
+    )
+    p.add_argument(
         "target",
         nargs=argparse.REMAINDER,
         help="Python target to trace, plus any args for it",
@@ -154,29 +161,40 @@ def main(argv: Optional[List[str]] = None) -> None:
         print("explr: no target specified", file=sys.stderr)
         sys.exit(1)
 
-    if not _is_python_target(target):
-        print(
-            f"explr: '{target}' does not appear to be a Python process.\n"
-            "explr supports: .py files, python/python3 invocations, and\n"
-            "executables with a Python shebang line.",
-            file=sys.stderr,
-        )
-        sys.exit(2)
+    # Resolve the command → find out if/how it runs Python
+    from .tracer import resolve_to_python, run_trace
+    from .renderer import render, render_mermaid
+
+    resolved = None
+    if _is_python_target(target):
+        # Already obviously Python (.py, python binary, python shebang)
+        resolved = None  # run_trace will detect mode itself
+    else:
+        resolved = resolve_to_python(target)
+        if resolved is None:
+            print(
+                f"explr: '{target}' does not appear to be a Python process.\n"
+                "explr supports: .py files, python/python3 invocations,\n"
+                "executables/scripts with a Python shebang, shell aliases and\n"
+                "shell functions that invoke Python.",
+                file=sys.stderr,
+            )
+            sys.exit(2)
+        python_target, extra_args = resolved
+        print(f"[explr] resolved '{target}' → {python_target}"
+              + (f" (extra args: {extra_args})" if extra_args else ""))
 
     out_path = _output_path(target, args.output)
 
     print(f"[explr] tracing: {target} {' '.join(target_args)}")
     print(f"[explr] output:  {out_path}")
 
-    # lazy imports so startup stays fast for error paths
-    from .tracer import run_trace
-    from .renderer import render
-
     call_graph = run_trace(
         target,
         target_args,
         max_depth=args.depth,
         no_stdlib=args.no_stdlib,
+        _resolved=resolved,
     )
 
     edge_count = len(call_graph.edges)
@@ -187,9 +205,12 @@ def main(argv: Optional[List[str]] = None) -> None:
         print("[explr] nothing to render – no calls were captured", file=sys.stderr)
         sys.exit(3)
 
-    # Ensure Homebrew graphviz is findable on macOS even if not in shell PATH
-    _gv_extra = "/opt/homebrew/bin" if sys.platform == "darwin" else None
-    render(call_graph, out_path, target_name=target, _graphviz_path=_gv_extra)
+    if args.mermaid:
+        render_mermaid(call_graph, out_path, target_name=target)
+    else:
+        # Ensure Homebrew graphviz is findable on macOS even if not in shell PATH
+        _gv_extra = "/opt/homebrew/bin" if sys.platform == "darwin" else None
+        render(call_graph, out_path, target_name=target, _graphviz_path=_gv_extra)
 
 
 if __name__ == "__main__":
