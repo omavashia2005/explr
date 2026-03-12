@@ -14,6 +14,8 @@ def trace(
     output: Optional[str] = None,
     depth: Optional[int] = None,
     no_stdlib: bool = False,
+    local: bool = False,
+    mermaid: bool = False,
 ) -> Optional[str]:
     """
     Trace *func* and write a call graph diagram to ./explr_diagrams/.
@@ -32,12 +34,15 @@ def trace(
         output:     Output filename stem (no extension). Defaults to func.__name__.
         depth:      Limit call depth captured (default: unlimited).
         no_stdlib:  Exclude stdlib calls from the diagram.
+        local:      Only show the function's own code — excludes stdlib and
+                    third-party packages (site-packages). Implies no_stdlib.
+        mermaid:    Output a Mermaid .mmd file instead of a PNG.
 
     Returns:
-        Path to the generated PNG, or None if no calls were captured.
+        Path to the generated diagram file, or None if no calls were captured.
     """
     call_graph = trace_func(func, args=args, kwargs=kwargs,
-                            max_depth=depth, no_stdlib=no_stdlib)
+                            max_depth=depth, no_stdlib=no_stdlib, local=local)
 
     node_count = len(call_graph.nodes)
     edge_count = len(call_graph.edges)
@@ -51,16 +56,13 @@ def trace(
     os.makedirs(out_dir, exist_ok=True)
 
     name = output or func.__name__
-    out_path = os.path.join(out_dir, f"{name}_diagram.png")
 
-    if args.mermaid:
+    if mermaid:
+        out_path = os.path.join(out_dir, f"{name}_diagram.mmd")
         render_mermaid(call_graph, out_path, target_name=func.__name__)
     else:
-        try:
-            _gv_extra = "/opt/homebrew/bin" if sys.platform == "darwin" else None
-            render(call_graph, out_path, target_name=func.__name__, _graphviz_path=_gv_extra)
-        except Exception as e:
-            print.debug(f"Graphviz rendering failed: {e}. Falling back to Mermaid output.")
-            render_mermaid(call_graph, out_path, target_name=func.__name__)
+        out_path = os.path.join(out_dir, f"{name}_diagram.png")
+        _gv_extra = "/opt/homebrew/bin" if sys.platform == "darwin" else None
+        render(call_graph, out_path, target_name=func.__name__, _graphviz_path=_gv_extra)
 
     return out_path

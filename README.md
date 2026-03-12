@@ -173,17 +173,22 @@ explr.trace(my_async_function, kwargs={"url": "...", "headers": {}})
 # With keyword args
 explr.trace(my_function, args=(x,), kwargs={"flag": True})
 
+# Recommended: local-only + Mermaid output
+explr.trace(my_function, args=(1, 2), local=True, mermaid=True)
+
 # All options
 explr.trace(
     my_function,
     args=(x,),
     output="my_graph",   # custom output filename (no extension)
     depth=5,             # limit call depth
-    no_stdlib=True,      # skip stdlib frames (faster)
+    local=True,          # only your own code (excludes stdlib + site-packages)
+    mermaid=True,        # output .mmd instead of .png
+    no_stdlib=True,      # skip stdlib frames — implied by local=True
 )
 
-# Returns the path to the generated PNG (or None if nothing was captured)
-path = explr.trace(my_function, args=(x,))
+# Returns the path to the generated file (or None if nothing was captured)
+path = explr.trace(my_function, args=(x,), local=True, mermaid=True)
 ```
 
 Diagrams are written to `./explr_diagrams/<func_name>_diagram.png` (or your `output` name).
