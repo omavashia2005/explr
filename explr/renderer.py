@@ -8,13 +8,12 @@ with each spine node's sub-calls hanging below it as a subtree.
 
 import importlib.util
 import os
+import re
 import sysconfig
 import sys
+from collections import defaultdict
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
-import mermaid as md
-from mermaid import Mermaid, Direction
-from mermaid.flowchart import FlowChart, Node, Link
 from .models import CallGraph, CallNode
 
 try:
@@ -65,13 +64,47 @@ def _is_display_node(node: CallNode) -> bool:
 # ── filtering ─────────────────────────────────────────────────────────────────
 
 def _filter_for_display(call_graph: CallGraph) -> CallGraph:
+    from collections import deque
     from .models import CallGraph as CG
 
-    display_keys = {
+    display_keys: Set[Tuple[str, str]] = {
         key for key, node in call_graph.nodes.items()
         if _is_display_node(node)
     }
 
+    # ── Reachability pruning ───────────────────────────────────────────────────
+    # Only keep display nodes reachable from a true entry point (a display node
+    # called directly by <root>). This drops orphaned import-time class chains
+    # that appear in the trace but aren't reachable from the script's entry calls.
+    root_entries: Set[Tuple[str, str]] = {
+        (e.callee.module, e.callee.func)
+        for e in call_graph.edges.values()
+        if e.caller.module == "<root>" and (e.callee.module, e.callee.func) in display_keys
+    }
+
+    if root_entries:
+        # Build display→display adjacency list for fast BFS
+        adj: dict = {}
+        for e in call_graph.edges.values():
+            ck = (e.caller.module, e.caller.func)
+            dk = (e.callee.module, e.callee.func)
+            if ck in display_keys and dk in display_keys:
+                adj.setdefault(ck, set()).add(dk)
+
+        reachable: Set[Tuple[str, str]] = set()
+        queue: deque = deque(root_entries)
+        while queue:
+            key = queue.popleft()
+            if key in reachable:
+                continue
+            reachable.add(key)
+            for neighbor in adj.get(key, ()):
+                if neighbor not in reachable:
+                    queue.append(neighbor)
+
+        display_keys &= reachable
+
+    # ── Build filtered graph ───────────────────────────────────────────────────
     filtered = CG()
     for edge in call_graph.edges.values():
         ck = (edge.caller.module, edge.caller.func)
@@ -79,7 +112,7 @@ def _filter_for_display(call_graph: CallGraph) -> CallGraph:
         if ck in display_keys and ek in display_keys:
             filtered.add_call(ck[0], ck[1], ek[0], ek[1], edge.count, edge.seq)
 
-    # Ensure spine nodes (display nodes called from non-display callers) exist
+    # Ensure spine nodes exist even if they have no sub-call edges
     for edge in call_graph.edges.values():
         ck = (edge.caller.module, edge.caller.func)
         ek = (edge.callee.module, edge.callee.func)
@@ -236,11 +269,25 @@ def render(
     dot.edge(prev, "__END__", constraint="false", color="#333333",
              arrowsize="0.9", penwidth="1.8")
 
-    # ── Non-spine display nodes ───────────────────────────────────────────────
+    # ── Non-spine display nodes — grouped by module into clusters ────────────
     spine_set = set(spine_keys)
+    module_groups: dict = defaultdict(list)
     for key, node in cg.nodes.items():
         if key not in spine_set:
-            dot.node(node.node_id(), _node_label(node))
+            module_groups[node.module].append(node)
+
+    for module, nodes in module_groups.items():
+        mod_short = module.split(".")[-1] if module not in ("__main__", "", None) else ""
+        cluster_id = "cluster_" + re.sub(r"[^A-Za-z0-9]", "_", module)
+        if mod_short and module != "__main__" and len(nodes) > 1:
+            with dot.subgraph(name=cluster_id) as sub:
+                sub.attr(label=mod_short, style="rounded,dashed",
+                         color="#AAAAAA", bgcolor="#FAFAFA", fontsize="10")
+                for node in nodes:
+                    sub.node(node.node_id(), _node_label(node))
+        else:
+            for node in nodes:
+                dot.node(node.node_id(), _node_label(node))
 
     # ── Sub-call edges (flow downward from spine into subtrees) ───────────────
     for edge in cg.edges.values():
@@ -272,6 +319,7 @@ def render(
     print(f"[explr] diagram written to {out}")
 
 def render_mermaid(call_graph: CallGraph, output_path: str, target_name: str) -> None:
+    """Render call_graph as a Mermaid flowchart (.mmd) without any external dependencies."""
 
     original = call_graph
     cg = _filter_for_display(call_graph)
@@ -290,64 +338,63 @@ def render_mermaid(call_graph: CallGraph, output_path: str, target_name: str) ->
 
     spine_keys = _ordered_spine(original, display_keys, has_display_caller)
 
-    # Fallback: no clear entry points (e.g. all nodes in a cycle)
     if not spine_keys:
         spine_keys = sorted(
             display_keys,
             key=lambda k: min(
                 (e.seq for e in cg.edges.values()
-                if (e.callee.module, e.callee.func) == k),
+                 if (e.callee.module, e.callee.func) == k),
                 default=0,
             ),
         )
 
-    # ── build mermaid nodes ───────────────────────────────────────────────────
-    mermaid_node_map: dict = {}
+    lines: List[str] = []
+    lines.append("---")
+    lines.append(f"title: {target_name}")
+    lines.append("---")
+    lines.append("flowchart LR")
 
-    start_node = Node("__START__", "S", shape="circle")
-    end_node = Node("__END__", "E", shape="circle")
-    mermaid_node_map["__START__"] = start_node
-    mermaid_node_map["__END__"] = end_node
+    # Terminal nodes (circle shape)
+    lines.append('\t__start__(("S"))')
+    lines.append('\t__end__(("E"))')
 
+    # Spine nodes
     spine_set = set(spine_keys)
-    for key in spine_keys:
-        node = cg.nodes[key]
-        nid = node.node_id()
-        mermaid_node_map[nid] = Node(nid, _node_label(node))
+    for k in spine_keys:
+        node = cg.nodes[k]
+        lines.append(f'\t{node.node_id()}["{_node_label(node)}"]')
 
+    # Non-spine nodes grouped by module into subgraphs
+    module_groups: dict = defaultdict(list)
     for key, node in cg.nodes.items():
         if key not in spine_set:
-            nid = node.node_id()
-            if nid not in mermaid_node_map:
-                mermaid_node_map[nid] = Node(nid, _node_label(node))
+            module_groups[node.module].append(node)
 
-    # ── build links ───────────────────────────────────────────────────────────
-    links: List[Link] = []
+    for module, nodes in module_groups.items():
+        mod_short = module.split(".")[-1] if module not in ("__main__", "", None) else ""
+        sub_id = re.sub(r"[^A-Za-z0-9_]", "_", module)
+        if mod_short and module != "__main__" and len(nodes) > 1:
+            lines.append(f"\tsubgraph {sub_id} [{mod_short}]")
+            for node in nodes:
+                lines.append(f'\t\t{node.node_id()}["{_node_label(node)}"]')
+            lines.append("\tend")
+        else:
+            for node in nodes:
+                lines.append(f'\t{node.node_id()}["{_node_label(node)}"]')
 
-    # Spine: S → spine1 → spine2 → ... → E
-    prev = start_node
+    # Spine chain: __start__ --> spine1 --> ... --> __end__
+    prev = "__start__"
     for k in spine_keys:
-        curr = mermaid_node_map[cg.nodes[k].node_id()]
-        links.append(Link(prev, curr))
-        prev = curr
-    links.append(Link(prev, end_node))
+        nid = cg.nodes[k].node_id()
+        lines.append(f"\t{prev} --> {nid}")
+        prev = nid
+    lines.append(f"\t{prev} --> __end__")
 
     # Sub-call edges
     for edge in cg.edges.values():
-        caller_nid = edge.caller.node_id()
-        callee_nid = edge.callee.node_id()
-        if caller_nid in mermaid_node_map and callee_nid in mermaid_node_map:
-            links.append(Link(mermaid_node_map[caller_nid], mermaid_node_map[callee_nid]))
-
-    # ── create chart and save ─────────────────────────────────────────────────
-    chart = FlowChart(
-        target_name,
-        nodes=list(mermaid_node_map.values()),
-        links=links,
-        orientation=Direction.LEFT_TO_RIGHT,
-    )
+        lines.append(f"\t{edge.caller.node_id()} --> {edge.callee.node_id()}")
 
     out = Path(output_path).with_suffix(".mmd")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text(chart.script)
+    out.write_text("\n".join(lines) + "\n")
     print(f"[explr] mermaid diagram written to {out}")

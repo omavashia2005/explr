@@ -2,8 +2,11 @@ import os
 import sys
 from typing import Callable, Optional
 
+from .models import CallGraph
 from .tracer import trace_func
 from .renderer import render, render_mermaid
+
+__all__ = ["trace", "graph", "CallGraph"]
 
 
 def trace(
@@ -66,3 +69,28 @@ def trace(
         render(call_graph, out_path, target_name=func.__name__, _graphviz_path=_gv_extra)
 
     return out_path
+
+
+def graph(
+    func: Callable,
+    args: tuple = (),
+    kwargs: Optional[dict] = None,
+    *,
+    depth: Optional[int] = None,
+    no_stdlib: bool = False,
+    local: bool = False,
+) -> CallGraph:
+    """
+    Trace *func* and return the raw CallGraph without rendering any diagram.
+
+    Useful for programmatic analysis::
+
+        cg = explr.graph(my_function, args=(x,), local=True)
+        cg.entry_points()            # top-level calls
+        cg.callees_of("run")         # what does run() call?
+        cg.callers_of("save", "db")  # what calls db.save?
+    """
+    if kwargs is None:
+        kwargs = {}
+    return trace_func(func, args=args, kwargs=kwargs,
+                      max_depth=depth, no_stdlib=no_stdlib, local=local)

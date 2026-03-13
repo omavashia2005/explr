@@ -287,6 +287,13 @@ def _trace(frame, event, arg):
             return None
         if _MAX_DEPTH is not None and depth >= _MAX_DEPTH:
             return None
+        # Skip synthetic frames (<module>, <listcomp>, <genexpr>, etc.)
+        if func.startswith("<"):
+            return None
+        # Skip class-body execution frames (Python injects __qualname__ + __module__
+        # into the frame locals before the class body runs — not a real call)
+        if "__qualname__" in frame.f_locals and "__module__" in frame.f_locals:
+            return None
 
         caller = _stack[-1] if _stack else ("<root>", "<root>")
         key    = (caller[0], caller[1], module, func)
@@ -396,6 +403,12 @@ def trace_func(
             if local and _is_third_party(filename):
                 return None
             if max_depth is not None and depth >= max_depth:
+                return None
+            # Skip synthetic frames (<module>, <listcomp>, <genexpr>, etc.)
+            if func_name.startswith("<"):
+                return None
+            # Skip class-body execution frames
+            if "__qualname__" in frame.f_locals and "__module__" in frame.f_locals:
                 return None
 
             caller = stack[-1] if stack else ("<root>", "<root>")

@@ -64,3 +64,32 @@ class CallGraph:
                 entry.get("seq", 0),
             )
         return graph
+
+    # ── Query helpers ──────────────────────────────────────────────────────────
+
+    def entry_points(self) -> List[CallNode]:
+        """Nodes called directly from top-level script execution (<root>)."""
+        seen: Dict[Tuple[str, str], CallNode] = {}
+        for e in sorted(self.edges.values(), key=lambda e: e.seq):
+            if e.caller.module == "<root>":
+                key = (e.callee.module, e.callee.func)
+                if key not in seen:
+                    seen[key] = e.callee
+        return list(seen.values())
+
+    def callees_of(self, func: str, module: str = "__main__") -> List[CallNode]:
+        """Return all nodes directly called by (module, func), in call order."""
+        key = (module, func)
+        return [
+            e.callee for e in sorted(self.edges.values(), key=lambda e: e.seq)
+            if (e.caller.module, e.caller.func) == key
+        ]
+
+    def callers_of(self, func: str, module: str = "__main__") -> List[CallNode]:
+        """Return all nodes that call (module, func), excluding the <root> sentinel."""
+        key = (module, func)
+        return [
+            e.caller for e in self.edges.values()
+            if (e.callee.module, e.callee.func) == key
+            and e.caller.module != "<root>"
+        ]
