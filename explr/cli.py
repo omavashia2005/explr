@@ -2,14 +2,15 @@
 explr – trace any Python process and output a call graph diagram.
 
 Usage:
-    explr [--depth N] [--no-stdlib] [--output NAME] <target> [target-args ...]
+    explr [--depth N] [--output NAME] [--graph] <target> [target-args ...]
 
-Flags consumed by explr (anything with --depth/--no-stdlib/--output):
+Flags consumed by explr:
     --depth N        Limit call depth (default: unlimited)
-    --no-stdlib      Exclude stdlib calls from the graph
     --output NAME    Override output filename (without extension)
+    --graph          Output a PNG diagram (graphviz) instead of Mermaid
 
 All other arguments are passed through to the target process.
+Local-only tracing is always enabled.
 """
 
 import argparse
@@ -87,7 +88,7 @@ def _resolve_target(argv: List[str]) -> Tuple[str, List[str]]:
 # Output path
 # ---------------------------------------------------------------------------
 
-def _output_path(target: str, output_override: Optional[str]) -> str:
+def _output_path(target: str, output_override: Optional[str], ext: str = ".mmd") -> str:
     out_dir = Path("explr_diagrams")
     out_dir.mkdir(exist_ok=True)
     if output_override:
@@ -95,7 +96,7 @@ def _output_path(target: str, output_override: Optional[str]) -> str:
     else:
         stem = Path(target).stem or target.replace(os.sep, "_")
         name = f"{stem}_diagram"
-    return str(out_dir / f"{name}.png")
+    return str(out_dir / f"{name}{ext}")
 
 
 # ---------------------------------------------------------------------------
@@ -116,23 +117,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Limit call depth (default: unlimited)",
     )
     p.add_argument(
-        "--no-stdlib",
-        action="store_true",
-        default=False,
-        help="Exclude stdlib calls from the graph",
-    )
-    p.add_argument(
         "--output",
         metavar="NAME",
         default=None,
         help="Override output filename (without extension)",
     )
     p.add_argument(
-        "--mermaid", 
-        "--mmd", 
-        default=False, 
+        "--graph",
         action="store_true",
-        help="Output Mermaid syntax instead of a PNG diagram"
+        default=False,
+        help="Output a PNG diagram (graphviz) instead of Mermaid",
     )
     p.add_argument(
         "target",
@@ -140,10 +134,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Python target to trace, plus any args for it",
     )
     p.add_argument(
-        "--local", 
-        action="store_true",
-        default=False,
-        help="Only include calls from the target's own code (exclude site-packages and stdlib)"
+        "--exclude-module",
+        metavar="NAME",
+        action="append",
+        default=[],
+        dest="exclude_module",
+        help="Exclude all nodes from module NAME (repeatable)",
+    )
+    p.add_argument(
+        "--exclude-func",
+        metavar="NAME",
+        action="append",
+        default=[],
+        dest="exclude_func",
+        help="Exclude all nodes with function name NAME (repeatable)",
     )
     return p
 
@@ -190,7 +194,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         print(f"[explr] resolved '{target}' → {python_target}"
               + (f" (extra args: {extra_args})" if extra_args else ""))
 
-    out_path = _output_path(target, args.output)
+    out_path = _output_path(target, args.output, ext=".png" if args.graph else ".mmd")
 
     print(f"[explr] tracing: {target} {' '.join(target_args)}")
     print(f"[explr] output:  {out_path}")
@@ -199,8 +203,8 @@ def main(argv: Optional[List[str]] = None) -> None:
         target,
         target_args,
         max_depth=args.depth,
-        no_stdlib=args.no_stdlib,
-        local=args.local,
+        no_stdlib=True,
+        local=True,
         _resolved=resolved,
     )
 
@@ -212,12 +216,14 @@ def main(argv: Optional[List[str]] = None) -> None:
         print("[explr] nothing to render – no calls were captured", file=sys.stderr)
         sys.exit(3)
 
-    if args.mermaid:
-        render_mermaid(call_graph, out_path, target_name=target)
-    else:
+    if args.graph:
         # Ensure Homebrew graphviz is findable on macOS even if not in shell PATH
         _gv_extra = "/opt/homebrew/bin" if sys.platform == "darwin" else None
-        render(call_graph, out_path, target_name=target, _graphviz_path=_gv_extra)
+        render(call_graph, out_path, target_name=target, _graphviz_path=_gv_extra,
+               exclude_modules=args.exclude_module, exclude_funcs=args.exclude_func)
+    else:
+        render_mermaid(call_graph, out_path, target_name=target,
+                       exclude_modules=args.exclude_module, exclude_funcs=args.exclude_func)
 
 
 if __name__ == "__main__":

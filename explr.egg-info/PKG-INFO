@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: explr
-Version: 0.1.4
+Version: 0.1.5
 Summary: Trace any Python process and generate a clean call graph diagram
 License-Expression: MIT
 Project-URL: Homepage, https://github.com/omavashia2005/explr

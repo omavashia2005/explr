@@ -16,9 +16,9 @@ def trace(
     *,
     output: Optional[str] = None,
     depth: Optional[int] = None,
-    no_stdlib: bool = False,
-    local: bool = False,
-    mermaid: bool = False,
+    graph: bool = False,
+    exclude_modules: tuple = (),
+    exclude_funcs: tuple = (),
 ) -> Optional[str]:
     """
     Trace *func* and write a call graph diagram to ./explr_diagrams/.
@@ -31,21 +31,20 @@ def trace(
         explr.trace(my_function, args=(x,), kwargs={"flag": True}, output="my_graph")
 
     Args:
-        func:       The callable to trace.
-        args:       Positional arguments to pass to func.
-        kwargs:     Keyword arguments to pass to func.
-        output:     Output filename stem (no extension). Defaults to func.__name__.
-        depth:      Limit call depth captured (default: unlimited).
-        no_stdlib:  Exclude stdlib calls from the diagram.
-        local:      Only show the function's own code — excludes stdlib and
-                    third-party packages (site-packages). Implies no_stdlib.
-        mermaid:    Output a Mermaid .mmd file instead of a PNG.
+        func:             The callable to trace.
+        args:             Positional arguments to pass to func.
+        kwargs:           Keyword arguments to pass to func.
+        output:           Output filename stem (no extension). Defaults to func.__name__.
+        depth:            Limit call depth captured (default: unlimited).
+        graph:            Output a PNG diagram (graphviz) instead of Mermaid.
+        exclude_modules:  Module names to exclude from the diagram.
+        exclude_funcs:    Function names to exclude from the diagram.
 
     Returns:
         Path to the generated diagram file, or None if no calls were captured.
     """
     call_graph = trace_func(func, args=args, kwargs=kwargs,
-                            max_depth=depth, no_stdlib=no_stdlib, local=local)
+                            max_depth=depth, no_stdlib=True, local=True)
 
     node_count = len(call_graph.nodes)
     edge_count = len(call_graph.edges)
@@ -60,13 +59,15 @@ def trace(
 
     name = output or func.__name__
 
-    if mermaid:
-        out_path = os.path.join(out_dir, f"{name}_diagram.mmd")
-        render_mermaid(call_graph, out_path, target_name=func.__name__)
-    else:
+    if graph:
         out_path = os.path.join(out_dir, f"{name}_diagram.png")
         _gv_extra = "/opt/homebrew/bin" if sys.platform == "darwin" else None
-        render(call_graph, out_path, target_name=func.__name__, _graphviz_path=_gv_extra)
+        render(call_graph, out_path, target_name=func.__name__, _graphviz_path=_gv_extra,
+               exclude_modules=exclude_modules, exclude_funcs=exclude_funcs)
+    else:
+        out_path = os.path.join(out_dir, f"{name}_diagram.mmd")
+        render_mermaid(call_graph, out_path, target_name=func.__name__,
+                       exclude_modules=exclude_modules, exclude_funcs=exclude_funcs)
 
     return out_path
 
@@ -77,15 +78,13 @@ def graph(
     kwargs: Optional[dict] = None,
     *,
     depth: Optional[int] = None,
-    no_stdlib: bool = False,
-    local: bool = False,
 ) -> CallGraph:
     """
     Trace *func* and return the raw CallGraph without rendering any diagram.
 
     Useful for programmatic analysis::
 
-        cg = explr.graph(my_function, args=(x,), local=True)
+        cg = explr.graph(my_function, args=(x,))
         cg.entry_points()            # top-level calls
         cg.callees_of("run")         # what does run() call?
         cg.callers_of("save", "db")  # what calls db.save?
@@ -93,4 +92,4 @@ def graph(
     if kwargs is None:
         kwargs = {}
     return trace_func(func, args=args, kwargs=kwargs,
-                      max_depth=depth, no_stdlib=no_stdlib, local=local)
+                      max_depth=depth, no_stdlib=True, local=True)

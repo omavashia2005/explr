@@ -44,7 +44,7 @@ def _is_stdlib_module(module: str) -> bool:
 
 # ── display-worthiness ────────────────────────────────────────────────────────
 
-def _is_display_node(node: CallNode) -> bool:
+def _is_display_node(node: CallNode, *, exclude_modules=(), exclude_funcs=()) -> bool:
     if node.module in ("<root>",):
         return False
     if node.func.startswith("<"):
@@ -58,18 +58,22 @@ def _is_display_node(node: CallNode) -> bool:
         return False
     if node.module != "__main__" and _is_stdlib_module(node.module):
         return False
+    if exclude_modules and top_module in exclude_modules:
+        return False
+    if exclude_funcs and node.func in exclude_funcs:
+        return False
     return True
 
 
 # ── filtering ─────────────────────────────────────────────────────────────────
 
-def _filter_for_display(call_graph: CallGraph) -> CallGraph:
+def _filter_for_display(call_graph: CallGraph, *, exclude_modules=(), exclude_funcs=()) -> CallGraph:
     from collections import deque
     from .models import CallGraph as CG
 
     display_keys: Set[Tuple[str, str]] = {
         key for key, node in call_graph.nodes.items()
-        if _is_display_node(node)
+        if _is_display_node(node, exclude_modules=exclude_modules, exclude_funcs=exclude_funcs)
     }
 
     # ── Reachability pruning ───────────────────────────────────────────────────
@@ -163,6 +167,8 @@ def render(
     output_path: str,
     target_name: str,
     _graphviz_path: Optional[str] = None,
+    exclude_modules=(),
+    exclude_funcs=(),
 ) -> None:
     if graphviz is None:
         raise RuntimeError(
@@ -170,7 +176,7 @@ def render(
         )
 
     original = call_graph
-    cg = _filter_for_display(call_graph)
+    cg = _filter_for_display(call_graph, exclude_modules=exclude_modules, exclude_funcs=exclude_funcs)
 
     if not cg.nodes:
         print(
@@ -318,11 +324,11 @@ def render(
 
     print(f"[explr] diagram written to {out}")
 
-def render_mermaid(call_graph: CallGraph, output_path: str, target_name: str) -> None:
+def render_mermaid(call_graph: CallGraph, output_path: str, target_name: str, exclude_modules=(), exclude_funcs=()) -> None:
     """Render call_graph as a Mermaid flowchart (.mmd) without any external dependencies."""
 
     original = call_graph
-    cg = _filter_for_display(call_graph)
+    cg = _filter_for_display(call_graph, exclude_modules=exclude_modules, exclude_funcs=exclude_funcs)
 
     if not cg.nodes:
         print(
