@@ -44,6 +44,20 @@ def _is_stdlib_module(module: str) -> bool:
 
 # ── display-worthiness ────────────────────────────────────────────────────────
 
+def _module_matches_any(module: str, exclude_modules) -> bool:
+    """Return True if any contiguous sub-path of `module` matches an excluded name.
+
+    Supports both dot notation (config.schema) and underscore notation (config_schema).
+    """
+    parts = module.split(".")
+    for length in range(1, len(parts) + 1):
+        for start in range(len(parts) - length + 1):
+            segment = parts[start : start + length]
+            if ".".join(segment) in exclude_modules or "_".join(segment) in exclude_modules:
+                return True
+    return False
+
+
 def _is_display_node(node: CallNode, *, exclude_modules=(), exclude_funcs=()) -> bool:
     if node.module in ("<root>",):
         return False
@@ -58,7 +72,7 @@ def _is_display_node(node: CallNode, *, exclude_modules=(), exclude_funcs=()) ->
         return False
     if node.module != "__main__" and _is_stdlib_module(node.module):
         return False
-    if exclude_modules and top_module in exclude_modules:
+    if exclude_modules and _module_matches_any(node.module, exclude_modules):
         return False
     if exclude_funcs and node.func in exclude_funcs:
         return False

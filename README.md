@@ -4,8 +4,6 @@ Trace any Python process and generate a clean call graph diagram.
 
 Best suited for debugging small-to-medium synchronous Python programs (for now).
 
-> **Recommended defaults:** use `--mermaid --local` for the cleanest results — Mermaid renders directly in VS Code and GitHub, and `--local` filters out everything except your own code.
-
 ```mermaid
 ---
 title: test_files/branching.py
@@ -36,6 +34,8 @@ flowchart LR
 
 `explr` injects Python's `sys.settrace` at runtime, records every function call, filters out noise (stdlib, dunders, private functions), and renders a flow diagram showing how control moves through your code.
 
+Only your own code is traced — stdlib and third-party packages are always excluded.
+
 The diagram has a **horizontal spine** of entry points in execution order, with each node's sub-calls hanging below it:
 
 ```
@@ -55,7 +55,7 @@ The diagram has a **horizontal spine** of entry points in execution order, with 
 
 ### Prerequisites
 
-The default PNG output requires **Graphviz**. Install it for your OS:
+The `--graph` PNG output requires **Graphviz**. Install it for your OS:
 
 | OS | Command |
 |---|---|
@@ -64,7 +64,7 @@ The default PNG output requires **Graphviz**. Install it for your OS:
 | Fedora / RHEL | `sudo dnf install graphviz` |
 | Windows | [Download installer](https://graphviz.org/download/) — make sure `dot` is added to PATH |
 
-> If you only want Mermaid (`.mmd`) output, Graphviz is not required.
+> Default Mermaid output does not require Graphviz.
 
 ### Install explr
 
@@ -82,23 +82,31 @@ explr [options] <target> [target-args ...]
 ### Examples
 
 ```bash
-# Recommended: clean output, no Graphviz needed
-explr --mermaid --local myscript.py
+# Default: Mermaid output, local-only tracing
+explr myscript.py
 
 # Trace with the python prefix (same result)
 explr python myscript.py
 explr python3 myscript.py
 
 # Pass arguments through to your script
-explr --mermaid --local myscript.py --config dev
+explr myscript.py --config dev
 
 # Trace a module-style tool (e.g. pytest, flask)
-explr --mermaid --local pytest tests/
-explr --mermaid --local python -m mypackage
+explr pytest tests/
+explr python -m mypackage
 
 # Trace any shell command that resolves to Python
 # (PATH scripts, shell aliases, shell functions)
-explr --mermaid --local my_tool --some-arg
+explr my_tool --some-arg
+
+# PNG output instead of Mermaid (requires Graphviz)
+explr --graph myscript.py
+
+# Exclude noisy modules or functions from the diagram
+explr --exclude-module requests myscript.py
+explr --exclude-module requests --exclude-module pandas myscript.py
+explr --exclude-func connect --exclude-func close myscript.py
 ```
 
 ### Resolving shell commands
@@ -123,32 +131,30 @@ explr mtgs_viewer
 
 | Flag | Description |
 |---|---|
-| `--mermaid` / `--mmd` | ⭐ Output a Mermaid flowchart (`.mmd`) instead of a PNG |
-| `--local` | ⭐ Only show your own code — excludes stdlib and third-party packages |
+| `--graph` | Output a PNG diagram (graphviz) instead of Mermaid |
 | `--depth N` | Limit call depth (default: unlimited) |
-| `--no-stdlib` | Skip tracing stdlib frames (faster; implied by `--local`) |
 | `--output NAME` | Override output filename (no extension needed) |
+| `--exclude-module NAME` | Exclude all nodes from a module (repeatable) |
+| `--exclude-func NAME` | Exclude all nodes with a function name (repeatable) |
 
 ```bash
-# Recommended: cleanest output, no Graphviz needed, works in VS Code + GitHub
-explr --mermaid --local myscript.py
-
 explr --depth 5 myscript.py
 explr --output my_graph myscript.py
+explr --exclude-module requests --exclude-module boto3 myscript.py
 ```
 
 ### Output formats
 
-**Default — PNG** (requires Graphviz):
-```
-explr_diagrams/
-  myscript_diagram.png
-```
-
-**Mermaid** (`--mermaid`):
+**Default — Mermaid** (no dependencies):
 ```
 explr_diagrams/
   myscript_diagram.mmd
+```
+
+**PNG** (`--graph`, requires Graphviz):
+```
+explr_diagrams/
+  myscript_diagram.png
 ```
 
 The `.mmd` file contains a standard [Mermaid](https://mermaid.js.org) flowchart that renders in:
@@ -173,25 +179,22 @@ explr.trace(my_async_function, kwargs={"url": "...", "headers": {}})
 # With keyword args
 explr.trace(my_function, args=(x,), kwargs={"flag": True})
 
-# Recommended: local-only + Mermaid output
-explr.trace(my_function, args=(1, 2), local=True, mermaid=True)
-
 # All options
 explr.trace(
     my_function,
     args=(x,),
-    output="my_graph",   # custom output filename (no extension)
-    depth=5,             # limit call depth
-    local=True,          # only your own code (excludes stdlib + site-packages)
-    mermaid=True,        # output .mmd instead of .png
-    no_stdlib=True,      # skip stdlib frames — implied by local=True
+    output="my_graph",                  # custom output filename (no extension)
+    depth=5,                            # limit call depth
+    graph=True,                         # output .png instead of .mmd
+    exclude_modules=("requests",),      # exclude noisy modules
+    exclude_funcs=("connect", "close"), # exclude specific functions
 )
 
 # Returns the path to the generated file (or None if nothing was captured)
-path = explr.trace(my_function, args=(x,), local=True, mermaid=True)
+path = explr.trace(my_function, args=(x,))
 ```
 
-Diagrams are written to `./explr_diagrams/<func_name>_diagram.png` (or your `output` name).
+Diagrams are written to `./explr_diagrams/<func_name>_diagram.mmd` (or `.png` with `graph=True`).
 
 `explr.trace()` runs entirely in-process using `sys.settrace` — no subprocess or temp files. Any existing trace hook is saved and restored around the call.
 
@@ -215,7 +218,6 @@ explr.trace(
     my_pipeline,
     kwargs={"url": "https://example.com", "headers": {}},
     output="my_pipeline",
-    no_stdlib=True,
 )
 ```
 
@@ -239,6 +241,7 @@ explr.trace(
 | Cross-module calls | Dunder methods (`__init__`, etc.) |
 | Recursive calls (self-loops) | Private functions/modules (leading `_`) |
 | Class methods | Synthetic names (`<listcomp>`, `<lambda>`, etc.) |
+| | Third-party packages (site-packages) |
 
 If a function has no user-defined sub-calls, it still appears on the spine as `S → fn → E`.
 
@@ -249,12 +252,12 @@ If a function has no user-defined sub-calls, it still appears on the spine as `S
 The `test_files/` directory contains examples covering common patterns:
 
 ```bash
-explr --mermaid --local test_files/simple.py             # linear call chain
-explr --mermaid --local test_files/recursive.py          # recursive functions
-explr --mermaid --local test_files/classes.py            # class methods
-explr --mermaid --local test_files/branching.py          # conditional branches
-explr --mermaid --local test_files/multi_module/main.py  # calls across multiple files
-explr --mermaid --local test_files/no_calls.py           # no sub-calls (spine only)
+explr test_files/simple.py             # linear call chain
+explr test_files/recursive.py          # recursive functions
+explr test_files/classes.py            # class methods
+explr test_files/branching.py          # conditional branches
+explr test_files/multi_module/main.py  # calls across multiple files
+explr test_files/no_calls.py           # no sub-calls (spine only)
 ```
 
 ---
